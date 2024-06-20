@@ -1,0 +1,125 @@
+---
+title: "Stats 101A Final Project"
+author: "Ethan Dao"
+date: "2024-03-15"
+output: pdf_document
+---
+
+# 1. Introduction, Background, Cleaning Data
+
+The data set that I have used is the "Abalone" data set from the UCI machine learning repository, and it has nine variables; length, diameter, height, whole weight, shucked weight, viscera weight, shell weight, and number of rings. Each variable has 4,177 observations.
+
+## Background
+
+Abalones are a group of marine gastropod mollusks, and we can deduce the age of abalones from counting the rings on their shells, as the number of rings + 1.5 gives the age of abalones in years. However, this is a tedious process, and instead of counting the rings for each individual abalone, my objective in this report is to see if there is a relationship between the ages of abalones and their physical characteristics. I will be using a multiple linear regression model to try and predict age from the eight other variables in the data set (length, diameter, height, whole weight, shucked weight, viscera weight, shell weight), which describe the physical characteristics of abalones.
+
+## Loading in data
+
+```{r}
+abalone_data <- read.csv('abalone.csv')
+head(abalone_data)
+```
+
+## Cleaning/Transforming Data
+
+My data had no missing values, so I did not have to clean my data or account for missing values. However, after examining the data for any possible errors, I noticed that two of the observations had heights equal to 0, which does not make sense in the context of the data. I changed both of these values to NA values in case they greatly affected the height variable in our model.
+
+Additionally, I decided to transform the sex and rings variable to fit a better linear model. For the sex, I decided to split the sex into two categorical variables, infant and non-infant, as I would expect infants vs. non-infant abalones to have a greater difference in rings than non-infant males and females. We can visualize this using a box plot analyzing the descriptive statistics of abalones by category. As a result of this, we can change the 'Sex' column from M, F, and I to I (infant) and A (adult). Finally, I decided to change the 'Rings' column to 'Age' to better reflect my objective. Since an abalone's age is perfectly correlated to its number of rings (Age = Rings + 1.5), we can add 1.5 to every observation in the 'Rings' column to get the age of the abalone.
+
+```{r}
+# Cleaning the height variable
+abalone_data <- abalone_data[abalone_data$Height != 0, ]
+
+# Ring Data: Age = Rings + 1.5
+abalone_data$Age <- abalone_data$Rings + 1.5
+abalone_data <- subset(abalone_data, select = -c(Rings))
+
+# Sex Data: Infants vs. Non-infants
+# Create a new column indicating whether the entry is an infant or not
+abalone_data$Infant <- ifelse(abalone_data$Sex == "I", "Infant", "Non-infant")
+# Visualizing the distribution of Rings for each group
+library(ggplot2)
+ggplot(abalone_data, aes(x = Infant, y = Age, fill = Infant)) + geom_boxplot() + theme_minimal()
+ggplot(abalone_data, aes(x = Sex, y = Age, fill = Sex)) + geom_boxplot() + theme_minimal()
+# Change Sex to Infant vs. Non-infant (I vs. N)
+abalone_data$Sex <- ifelse(abalone_data$Sex == "I", "I", "A")
+abalone_data <- subset(abalone_data, select = -c(Infant))
+```
+
+# 2. Descriptive Statistics
+
+Now, I will analyze the descriptive statistics of my data set. Looking at the summary table of the cleaned data, we can get a better look at the central tendencies of the data, as well as an overview of the distribution and variables in the data. As for the age, the range is from 2.5 years to 30.5 years old, and the median and mean of the abalones' ages are 10.5 and 11.43, respectively. After looking at the scatterplots between each of the predictor variables and age, it appears that all of them have a positive correlation with age. However, we must transform and select our variables carefully in order to get a model that avoids multicollinearity, overfitting, and other problems so we can get the most accurate model to predict abalone age.
+
+```{r}
+# Get summary of abalone data
+summary(abalone_data)
+
+# Plot scatter plots for each variable against Age
+plot(abalone_data$Age, abalone_data$Length, main = "Length vs. Age", xlab = "Age", ylab = "Length", col = "red", pch = 16, cex = 0.5)
+abline(lm(Length ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Diameter, main = "Diameter vs. Age", xlab = "Age", ylab = "Diameter", col = "orange", pch = 16, cex = 0.5)
+abline(lm(Diameter ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Height, main = "Height vs. Age", xlab = "Age", ylab = "Height", col = "yellow", pch = 16, cex = 0.5)
+abline(lm(Height ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Whole.weight, main = "Whole Weight vs. Age", xlab = "Age", ylab = "Whole Weight", col = "green", pch = 16, cex = 0.5)
+abline(lm(Whole.weight ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Shucked.weight, main = "Shucked Weight vs. Age", xlab = "Age", ylab = "Shucked Weight", col = "blue", pch = 16, cex = 0.5)
+abline(lm(Shucked.weight ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Viscera.weight, main = "Viscera Weight vs. Age", xlab = "Age", ylab = "Viscera Weight", col = "purple", pch = 16, cex = 0.5)
+abline(lm(Viscera.weight ~ Age, data = abalone_data), col = "red")
+plot(abalone_data$Age, abalone_data$Shell.weight, main = "Shell Weight vs. Age", xlab = "Age", ylab = "Shell Weight", col = "pink", pch = 16, cex = 0.5)
+abline(lm(Shell.weight ~ Age, data = abalone_data), col = "red")
+```
+
+# 3. Choosing our predictors and building our model
+
+To choose my predictors, I will be using a correlation matrix to weed out variables highly correlated to each other, and then using a backwards stepwise regression method to choose only the relevant predictor variables that will minimize AIC. This will prevent overfitting and multicollinearity in the multiple linear regression model.
+
+## a.) Correlation matrix
+
+Looking at the correlation between each of the variables and age, each variable has a correlation greater than +-0.4, so we will keep all of the predictor variables.
+
+```{r}
+# install.packages("PerformanceAnalytics")
+# install.packages("car")
+library("PerformanceAnalytics")
+library("car")
+
+# Assuming 'abalone_data' is your dataframe
+# Create an indicator variable for the 'Infant' category
+abalone_data$Infant_indicator <- ifelse(abalone_data$Sex == "I", 1, 0)
+
+# Initial linear regression model
+initial_lm <- lm(Age ~ Infant_indicator + Length + Diameter + Height + Whole.weight + Shucked.weight + Viscera.weight + Shell.weight, data = abalone_data)
+
+# 1. Compute correlation with 'Age' including the indicator variable
+correlation <- cor(abalone_data[, c("Age", "Length", "Diameter", "Height", "Whole.weight", "Shucked.weight", "Viscera.weight", "Shell.weight", "Infant_indicator")])
+
+# View correlation of 'Age' with other variables
+print(correlation["Age", ])
+
+# 2. Correlation matrix
+filtered_data <- abalone_data[, c("Age", "Diameter", "Height", "Whole.weight", "Shucked.weight", "Viscera.weight", "Shell.weight", "Infant_indicator")]
+chart.Correlation(filtered_data, histogram = TRUE, pch = 19)
+vif <- vif(initial_lm)
+vif
+```
+
+However, we run into a problem where many of the variables are highly correlated with each other. After doing some more investigation, it looks like the whole weight, shucked weight, viscera weight, and shell weight are very highly correlated, likely due to the fact that they are all components of an abalone's weight. We can keep the shell weight, since it has the highest correlation with age when looked at individually. A similar instance happens between the length and diameter variables, since they are both measures of the size of an abalone. We keep the diameter variable, since it has a higher correlation with age when looked at individually.
+
+## b.) Stepwise Regression
+
+When we perform backwards stepwise regression on the initial model, length is removed as a predictor variable to minimize the AIC, which is consistent with what we did when we selected our variables using the correlation matrix. However, after removing the length, shucked weight, shell weight, and viscera weight variables, we want to make sure that there are no other variables that increase the AIC. After performing the stepwise regression again on our filtered data, we see that we do not have to remove any more variables.
+
+```{r}
+step(initial_lm, direction = "backward", data = abalone_data)
+filtered_lm <- lm(Age ~ Infant_indicator + Diameter + Height + Shell.weight, data = abalone_data)
+```
+
+# 4. Model Diagnostics and Transformations
+```{r}
+filtered_lm <- lm(log(Age) ~ Diameter + Height + Shell.weight + Infant_indicator, data = abalone_data)
+summary(filtered_lm)
+
+plot(filtered_lm)
+```
